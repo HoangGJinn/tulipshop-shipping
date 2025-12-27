@@ -1,5 +1,8 @@
 package com.tulipshipping.service;
 
+import com.tulipshipping.dto.ShippingRequest;
+import com.tulipshipping.entity.ShippingOrder;
+
 import java.math.BigDecimal;
 
 public interface ShippingService {
@@ -10,4 +13,6 @@ public interface ShippingService {
     BigDecimal calculateFee(double distance, String deliveryType);
 
     void simulateDelivery(String orderCode);
+
+    ShippingOrder createShippingOrder(ShippingRequest request);
 }

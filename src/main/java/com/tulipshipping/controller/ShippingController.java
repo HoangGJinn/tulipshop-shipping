@@ -12,8 +12,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.Optional;
+
 @RestController
-@RequestMapping("/api") // Base URL
+@RequestMapping("/api")
 public class ShippingController {
 
     @Autowired
@@ -22,42 +24,38 @@ public class ShippingController {
     @Autowired
     private ShippingRepository repository;
 
-    // --- API 1: TÍNH PHÍ VẬN CHUYỂN (Đã cập nhật) ---
+    // --- API 1: TÍNH PHÍ VẬN CHUYỂN ---
     @PostMapping("/shipping-method")
     public ResponseEntity<ShippingRateResponse> getShippingMethod(@RequestBody ShippingRateRequest request) {
-        // 1. Lấy tọa độ & Tính khoảng cách
         double[] coords = shippingService.getCoordinates(request.getAddress());
         double distance = shippingService.calculateDistance(coords[0], coords[1]);
 
-        // 2. Xác định phương thức giao hàng
-        // Logic: Nếu FE có gửi lên thì dùng, nếu không gửi (null/rỗng) thì mặc định là STANDARD
         String method = (request.getDeliveryType() != null && !request.getDeliveryType().isEmpty())
                 ? request.getDeliveryType().toUpperCase()
                 : "STANDARD";
 
-        // 3. Tính phí dựa trên method đã chọn
         BigDecimal fee = shippingService.calculateFee(distance, method);
 
-        // 4. Trả về kết quả
         ShippingRateResponse response = new ShippingRateResponse(
-                method, // Trả lại đúng method mà FE đã yêu cầu
+                method,
                 fee,
                 Math.round(distance * 10.0) / 10.0,
-                method.equals("FAST") ? "1-2 ngày" : "3-5 ngày" // Thời gian dự kiến đổi theo method
+                method.equals("FAST") ? "1-2 ngày" : "3-5 ngày"
         );
 
         return ResponseEntity.ok(response);
     }
 
-    // --- API 2: TẠO VẬN ĐƠN (ADD SHIPPING) ---
-    // URL: POST http://localhost:8788/api/add-shipping
+    // --- API 2: TẠO VẬN ĐƠN (Chỉ tạo, chưa giao ngay) ---
     @PostMapping("/add-shipping")
     public ResponseEntity<?> addShippingOrder(@RequestBody ShippingRequest request) {
-        // 1. Tính toán lại khoảng cách & giá (Để bảo mật, không tin tưởng giá từ Client gửi lên)
+        // Có thể tái sử dụng logic createShippingOrder trong Service cho gọn
+        // Nhưng nếu viết ở đây thì như sau:
+
+        // 1. Tính toán lại khoảng cách & giá
         double[] coords = shippingService.getCoordinates(request.getReceiverAddress());
         double distance = shippingService.calculateDistance(coords[0], coords[1]);
 
-        // Mặc định STANDARD nếu request không gửi, hoặc dùng giá trị request gửi
         String method = (request.getDeliveryType() == null || request.getDeliveryType().isEmpty())
                 ? "STANDARD" : request.getDeliveryType();
 
@@ -69,21 +67,47 @@ public class ShippingController {
         order.setReceiverName(request.getReceiverName());
         order.setReceiverPhone(request.getReceiverPhone());
         order.setReceiverAddress(request.getReceiverAddress());
-
         order.setDistance(distance);
         order.setShippingPrice(fee);
         order.setDeliveryType(method);
-        order.setStatus(ShippingStatus.PENDING); // Mới tạo thì là PENDING (Chờ lấy hàng)
+
+        // QUAN TRỌNG: Trạng thái ban đầu là PENDING (Chờ shop giao hàng cho shipper)
+        order.setStatus(ShippingStatus.PENDING);
+
+        order.setCodAmount(request.getCodAmount());
 
         repository.save(order);
-
-        // 3. Kích hoạt giả lập giao hàng (Chạy ngầm -> chuyển sang SHIPPED)
-        shippingService.simulateDelivery(request.getOrderCode());
 
         return ResponseEntity.ok(order);
     }
 
-    // --- API 3: THEO DÕI ĐƠN HÀNG (Giữ nguyên) ---
+    // API 3: KÍCH HOẠT GIAO HÀNG
+    // URL: POST http://localhost:8788/api/start-delivery/ORD-12345
+    @PostMapping("/start-delivery/{orderCode}")
+    public ResponseEntity<?> startDelivery(@PathVariable String orderCode) {
+        Optional<ShippingOrder> orderOpt = repository.findByOrderCode(orderCode);
+
+        if (orderOpt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+
+        ShippingOrder order = orderOpt.get();
+
+        // Chỉ kích hoạt nếu đơn đang ở trạng thái chờ
+        if (order.getStatus() == ShippingStatus.PENDING) {
+            order.setStatus(ShippingStatus.SHIPPING); // Chuyển sang đang giao
+            repository.save(order);
+
+            // Chạy async giả lập giao hàng (sau 60s sẽ thành DELIVERED)
+            shippingService.simulateDelivery(orderCode);
+
+            return ResponseEntity.ok("Đơn hàng " + orderCode + " đã bắt đầu được giao!");
+        } else {
+            return ResponseEntity.badRequest().body("Đơn hàng không ở trạng thái chờ hoặc đã giao xong.");
+        }
+    }
+
+    // --- API 4: THEO DÕI ĐƠN HÀNG ---
     @GetMapping("/track/{orderCode}")
     public ResponseEntity<?> trackOrder(@PathVariable String orderCode) {
         return repository.findByOrderCode(orderCode)

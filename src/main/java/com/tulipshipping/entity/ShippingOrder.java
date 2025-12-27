@@ -11,18 +11,22 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder // Thêm Builder để dễ tạo object
 public class ShippingOrder {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // QUAN TRỌNG: Mã đơn hàng từ tulipshop (thay cho vnp_txn_ref)
+    // Mã đơn hàng từ tulipshop
     @Column(name = "order_code", unique = true, nullable = false)
     private String orderCode;
 
     // --- THÔNG TIN NGƯỜI GỬI (SHOP) ---
+    @Builder.Default
     private String senderName = "Tulip Shop - HCMUTE";
+    @Builder.Default
     private String senderPhone = "0909123456";
+    @Builder.Default
     private String senderAddress = "Số 1 Võ Văn Ngân, TP. Thủ Đức, TP. HCM";
 
     // --- THÔNG TIN NGƯỜI NHẬN (KHÁCH) ---
@@ -34,13 +38,20 @@ public class ShippingOrder {
 
     // --- CHI TIẾT VẬN CHUYỂN ---
     private double distance; // km
-    private BigDecimal shippingPrice;
+    private BigDecimal shippingPrice; // Phí ship
+
+    // [MỚI] Số tiền thu hộ (COD)
+    // Nếu khách thanh toán online (VNPAY/MOMO) thì giá trị này là 0
+    @Column(name = "cod_amount")
+    private BigDecimal codAmount;
 
     @Enumerated(EnumType.STRING)
     private ShippingStatus status;
 
     private String deliveryType; // STANDARD, FAST
 
+    @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
+
     private LocalDateTime deliveredAt;
 }
